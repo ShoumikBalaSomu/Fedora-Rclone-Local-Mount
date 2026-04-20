@@ -1,0 +1,30 @@
+# =============================================================================
+#  Fedora Rclone Local Mount — mount.conf.example
+#  Copy to: ~/.config/rclone-mounter/mounts.conf
+#
+#  Format: NAME|REMOTE|MOUNTPOINT|VFS_CACHE|READ_ONLY|EXTRA_FLAGS|AUTOMOUNT
+#
+#  Fields:
+#    NAME        Unique profile name (alphanumeric, hyphens, underscores)
+#    REMOTE      rclone remote path  (e.g. gdrive:, gdrive:Photos, s3:bucket)
+#    MOUNTPOINT  Local directory     (e.g. /home/user/CloudDrives/gdrive)
+#    VFS_CACHE   off | minimal | writes | full
+#    READ_ONLY   true | false
+#    EXTRA_FLAGS Extra rclone flags  (e.g. --allow-other --dir-cache-time 1h)
+#    AUTOMOUNT   yes | no   (creates systemd unit for boot auto-mount)
+# =============================================================================
+
+# ── Google Drive (full cache, read-write, auto-mount) ─────────────────────
+gdrive|gdrive:|/home/myuser/CloudDrives/gdrive|full|false|--allow-other|yes
+
+# ── OneDrive (photo backup folder, read-only) ─────────────────────────────
+onedrive-photos|onedrive:Photos|/home/myuser/CloudDrives/onedrive-photos|minimal|true||no
+
+# ── Backblaze B2 Bucket (writes cache, no auto-mount) ────────────────────
+b2-backups|b2:my-backup-bucket|/home/myuser/CloudDrives/b2|writes|false|--b2-chunk-size 96M|no
+
+# ── SFTP Remote Server ─────────────────────────────────────────────────────
+myserver|sftp-work:/data|/home/myuser/Mounts/work-server|writes|false|--sftp-idle-timeout 60s|yes
+
+# ── Dropbox ────────────────────────────────────────────────────────────────
+dropbox|dropbox:|/home/myuser/CloudDrives/dropbox|full|false||yes

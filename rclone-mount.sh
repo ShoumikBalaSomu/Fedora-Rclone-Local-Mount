@@ -1,0 +1,996 @@
+#!/usr/bin/env bash
+# =============================================================================
+#  ██████╗  ██████╗██╗      ██████╗ ███╗   ██╗███████╗
+#  ██╔══██╗██╔════╝██║     ██╔═══██╗████╗  ██║██╔════╝
+#  ██████╔╝██║     ██║     ██║   ██║██╔██╗ ██║█████╗
+#  ██╔══██╗██║     ██║     ██║   ██║██║╚██╗██║██╔══╝
+#  ██║  ██║╚██████╗███████╗╚██████╔╝██║ ╚████║███████╗
+#  ╚═╝  ╚═╝ ╚═════╝╚══════╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝
+#
+#  Fedora Rclone Local Mount Manager
+#  Author  : ShoumikBalaSomu
+#  GitHub  : https://github.com/ShoumikBalaSomu/Fedora-Rclone-Local-Mount
+#  License : MIT
+#  Version : 2.0.0
+# =============================================================================
+
+set -euo pipefail
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  GLOBAL CONSTANTS
+# ─────────────────────────────────────────────────────────────────────────────
+readonly SCRIPT_VERSION="2.0.0"
+readonly SCRIPT_NAME="Fedora Rclone Local Mount Manager"
+readonly CONFIG_DIR="${HOME}/.config/rclone-mounter"
+readonly CONFIG_FILE="${CONFIG_DIR}/mounts.conf"
+readonly LOG_FILE="${CONFIG_DIR}/rclone-mounter.log"
+readonly SYSTEMD_USER_DIR="${HOME}/.config/systemd/user"
+readonly DEFAULT_MOUNT_BASE="${HOME}/CloudDrives"
+readonly RCLONE_BIN=$(command -v rclone 2>/dev/null || true)
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  ANSI COLOUR PALETTE
+# ─────────────────────────────────────────────────────────────────────────────
+RED='\033[0;31m';    BRED='\033[1;31m'
+GREEN='\033[0;32m';  BGREEN='\033[1;32m'
+YELLOW='\033[0;33m'; BYELLOW='\033[1;33m'
+BLUE='\033[0;34m';   BBLUE='\033[1;34m'
+MAGENTA='\033[0;35m';BMAGENTA='\033[1;35m'
+CYAN='\033[0;36m';   BCYAN='\033[1;36m'
+WHITE='\033[0;37m';  BWHITE='\033[1;37m'
+BOLD='\033[1m';      DIM='\033[2m'
+ITALIC='\033[3m';    UNDERLINE='\033[4m'
+RESET='\033[0m'
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  LOGGING HELPERS
+# ─────────────────────────────────────────────────────────────────────────────
+log_info()    { echo -e "${BCYAN}[INFO]${RESET}    $*" | tee -a "$LOG_FILE"; }
+log_ok()      { echo -e "${BGREEN}[OK]${RESET}      $*" | tee -a "$LOG_FILE"; }
+log_warn()    { echo -e "${BYELLOW}[WARN]${RESET}    $*" | tee -a "$LOG_FILE"; }
+log_error()   { echo -e "${BRED}[ERROR]${RESET}   $*" | tee -a "$LOG_FILE" >&2; }
+log_step()    { echo -e "${BMAGENTA}[STEP]${RESET}    $*" | tee -a "$LOG_FILE"; }
+log_debug()   { [[ "${DEBUG:-0}" == "1" ]] && echo -e "${DIM}[DEBUG]   $*${RESET}" >> "$LOG_FILE"; }
+log_raw()     { echo -e "$*"; }
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  SPINNER / PROGRESS
+# ─────────────────────────────────────────────────────────────────────────────
+_spinner_pid=""
+
+spinner_start() {
+    local msg="${1:-Working...}"
+    local frames=('⣾' '⣽' '⣻' '⢿' '⡿' '⣟' '⣯' '⣷')
+    echo -ne "\n${BCYAN}"
+    (
+        i=0
+        while true; do
+            printf "\r  ${frames[$((i % 8))]}  %s " "$msg"
+            (( i++ )) || true
+            sleep 0.1
+        done
+    ) &
+    _spinner_pid=$!
+    disown "$_spinner_pid" 2>/dev/null || true
+}
+
+spinner_stop() {
+    if [[ -n "$_spinner_pid" ]]; then
+        kill "$_spinner_pid" 2>/dev/null || true
+        wait "$_spinner_pid" 2>/dev/null || true
+        _spinner_pid=""
+        printf "\r${RESET}%-60s\r" " "
+    fi
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  BANNER
+# ─────────────────────────────────────────────────────────────────────────────
+print_banner() {
+    clear
+    echo -e "${BBLUE}"
+    cat << 'EOF'
+  ╔═══════════════════════════════════════════════════════════════════╗
+  ║                                                                   ║
+  ║   ██████╗  ██████╗██╗      ██████╗ ███╗   ██╗███████╗           ║
+  ║   ██╔══██╗██╔════╝██║     ██╔═══██╗████╗  ██║██╔════╝           ║
+  ║   ██████╔╝██║     ██║     ██║   ██║██╔██╗ ██║█████╗             ║
+  ║   ██╔══██╗██║     ██║     ██║   ██║██║╚██╗██║██╔══╝             ║
+  ║   ██║  ██║╚██████╗███████╗╚██████╔╝██║ ╚████║███████╗           ║
+  ║   ╚═╝  ╚═╝ ╚═════╝╚══════╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝          ║
+  ║                                                                   ║
+  ║        Fedora Rclone Local Mount Manager  v2.0.0                 ║
+  ║        github.com/ShoumikBalaSomu/Fedora-Rclone-Local-Mount     ║
+  ╚═══════════════════════════════════════════════════════════════════╝
+EOF
+    echo -e "${RESET}"
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  DIVIDER / SECTION HEADER
+# ─────────────────────────────────────────────────────────────────────────────
+section() {
+    echo -e "\n${BBLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+    echo -e "  ${BOLD}${BCYAN}$*${RESET}"
+    echo -e "${BBLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n"
+}
+
+hr() {
+    echo -e "${DIM}  ───────────────────────────────────────────────────────────────────${RESET}"
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  PROMPT HELPERS
+# ─────────────────────────────────────────────────────────────────────────────
+ask() {
+    # ask <variable_name> <prompt> [default]
+    local var="$1" prompt="$2" default="${3:-}"
+    local display_default=""
+    [[ -n "$default" ]] && display_default=" ${DIM}[${default}]${RESET}"
+    echo -ne "  ${BYELLOW}?${RESET}  ${BOLD}${prompt}${RESET}${display_default}: "
+    read -r "$var"
+    # If empty and default provided, assign default
+    if [[ -z "${!var}" && -n "$default" ]]; then
+        printf -v "$var" '%s' "$default"
+    fi
+}
+
+ask_yn() {
+    # ask_yn <prompt> <default y|n>  → returns 0 (yes) or 1 (no)
+    local prompt="$1" default="${2:-n}"
+    local yn_hint
+    if [[ "$default" == "y" ]]; then yn_hint="${BGREEN}Y${RESET}/${DIM}n${RESET}"; else yn_hint="${DIM}y${RESET}/${BGREEN}N${RESET}"; fi
+    echo -ne "  ${BYELLOW}?${RESET}  ${BOLD}${prompt}${RESET} [${yn_hint}]: "
+    local ans; read -r ans
+    ans="${ans:-$default}"
+    [[ "${ans,,}" == "y" ]]
+}
+
+pause() {
+    echo -ne "\n  ${DIM}Press ${RESET}${BOLD}[Enter]${RESET}${DIM} to continue...${RESET}"
+    read -r
+}
+
+pick_from_list() {
+    # pick_from_list <variable> <prompt> <item1> <item2> ...
+    local var="$1"; shift
+    local prompt="$1"; shift
+    local items=("$@")
+    echo -e "\n  ${BOLD}${prompt}${RESET}\n"
+    local i=1
+    for item in "${items[@]}"; do
+        echo -e "    ${BCYAN}${i})${RESET}  ${item}"
+        (( i++ )) || true
+    done
+    echo ""
+    local choice
+    while true; do
+        ask choice "Enter number (1-${#items[@]})"
+        if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#items[@]} )); then
+            printf -v "$var" '%s' "${items[$((choice-1))]}"
+            return 0
+        fi
+        log_warn "Invalid choice. Please enter a number between 1 and ${#items[@]}."
+    done
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  INIT — Ensure dirs / config file exist
+# ─────────────────────────────────────────────────────────────────────────────
+init_config() {
+    mkdir -p "$CONFIG_DIR" "$DEFAULT_MOUNT_BASE" "$SYSTEMD_USER_DIR"
+    if [[ ! -f "$CONFIG_FILE" ]]; then
+        cat > "$CONFIG_FILE" << 'CONF'
+# Fedora Rclone Local Mount Manager — Saved Mounts
+# Format: NAME|REMOTE|MOUNTPOINT|VFS_CACHE|READ_ONLY|EXTRA_FLAGS|AUTOMOUNT
+# ─────────────────────────────────────────────────
+CONF
+        log_debug "Config file created at $CONFIG_FILE"
+    fi
+    # Create log with header if new
+    if [[ ! -f "$LOG_FILE" ]]; then
+        echo "# Rclone Mounter Log — started $(date)" > "$LOG_FILE"
+    fi
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  DEPENDENCY CHECK
+# ─────────────────────────────────────────────────────────────────────────────
+check_dependencies() {
+    section "Dependency Check"
+
+    local missing=()
+    local deps=("rclone" "fusermount3" "systemctl" "fuse")
+
+    for dep in "${deps[@]}"; do
+        if ! command -v "$dep" &>/dev/null && ! rpm -q "$dep" &>/dev/null 2>&1; then
+            missing+=("$dep")
+            echo -e "  ${BRED}✗${RESET}  ${dep}"
+        else
+            echo -e "  ${BGREEN}✓${RESET}  ${dep}"
+        fi
+    done
+
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo ""
+        log_warn "Missing: ${missing[*]}"
+        if ask_yn "Auto-install missing dependencies via dnf?" "y"; then
+            spinner_start "Installing dependencies..."
+            sudo dnf install -y rclone fuse fuse3 fuse3-libs >> "$LOG_FILE" 2>&1 || true
+            spinner_stop
+            # Reload path
+            hash -r
+        else
+            log_error "Cannot proceed without required dependencies."
+            exit 1
+        fi
+    fi
+
+    # Ensure fuse userspace access
+    if ! grep -qx "user_allow_other" /etc/fuse.conf 2>/dev/null; then
+        log_warn "/etc/fuse.conf: 'user_allow_other' not set — --allow-other flag may fail."
+        echo -e "  ${DIM}Run: sudo sh -c 'echo user_allow_other >> /etc/fuse.conf'${RESET}"
+    fi
+
+    log_ok "All dependencies satisfied."
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  LIST MOUNTED DRIVES
+# ─────────────────────────────────────────────────────────────────────────────
+list_mounts() {
+    section "Currently Mounted Rclone Drives"
+
+    # Only match genuine rclone FUSE mounts (type fuse.rclone)
+    # This excludes system mounts like fusectl, gvfsd-fuse, portal, etc.
+    local mounted_lines
+    mounted_lines=$(mount 2>/dev/null | grep 'type fuse\.rclone' || true)
+
+    if [[ -z "$mounted_lines" ]]; then
+        echo -e "  ${YELLOW}No rclone drives are currently mounted.${RESET}\n"
+    else
+        # Table header
+        printf "\n  ${BOLD}%-22s %-38s %-12s %-10s${RESET}\n" "REMOTE" "MOUNTPOINT" "VFS CACHE" "STATUS"
+        hr
+
+        while IFS= read -r line; do
+            # mount output: <remote> on <mp> type fuse.rclone (options)
+            local remote mp opts
+            remote=$(echo "$line" | awk '{print $1}')
+            mp=$(echo "$line"    | awk '{print $3}')
+            opts=$(echo "$line"  | grep -o '([^)]*)' | head -1)
+            # Extract vfs-cache-mode from options if present
+            local vfs_disp
+            vfs_disp=$(echo "$opts" | grep -oP 'vfs_cache_mode=[^,)]+' || echo "")
+            [[ -z "$vfs_disp" ]] && vfs_disp="-"
+            if ls "$mp" &>/dev/null 2>&1; then
+                local status_str="${BGREEN}● Active${RESET}"
+            else
+                local status_str="${BRED}✗ Error${RESET}"
+            fi
+            printf "  ${BCYAN}%-22s${RESET} ${WHITE}%-38s${RESET} ${DIM}%-12s${RESET} %b\n" \
+                "$remote" "$mp" "$vfs_disp" "$status_str"
+        done <<< "$mounted_lines"
+
+        hr
+        echo ""
+    fi
+
+    # Always show saved profiles table
+    if [[ -f "$CONFIG_FILE" ]]; then
+        local count=0
+        echo -e "  ${BOLD}Saved mount profiles:${RESET}\n"
+        printf "  ${BOLD}%-20s %-38s %-10s %-10s${RESET}\n" "NAME" "MOUNTPOINT" "VFS CACHE" "AUTOMOUNT"
+        hr
+        while IFS='|' read -r name remote mp vfs ro extra auto; do
+            [[ "$name" =~ ^#.*$ || -z "$name" ]] && continue
+            # Check if this profile is currently mounted
+            local mp_status=""
+            if mount 2>/dev/null | grep -q "type fuse\.rclone" && \
+               mount 2>/dev/null | grep "type fuse\.rclone" | awk '{print $3}' | grep -qxF "$mp"; then
+                mp_status=" ${BGREEN}[mounted]${RESET}"
+            fi
+            local auto_flag="${DIM}No${RESET}"
+            [[ "$auto" == "yes" ]] && auto_flag="${BGREEN}Yes${RESET}"
+            printf "  ${BMAGENTA}%-20s${RESET} %-38s ${BCYAN}%-10s${RESET} %b%b\n" \
+                "$name" "$mp" "$vfs" "$auto_flag" "$mp_status"
+            (( count++ )) || true
+        done < "$CONFIG_FILE"
+        hr
+        echo -e "  ${DIM}Total saved profiles: ${BOLD}${count}${RESET}\n"
+    fi
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  CONFIGURE A NEW RCLONE REMOTE
+# ─────────────────────────────────────────────────────────────────────────────
+configure_remote() {
+    section "Configure New Rclone Remote"
+
+    echo -e "  ${DIM}This will launch the interactive rclone config wizard.${RESET}"
+    echo -e "  ${DIM}You can set up Google Drive, OneDrive, Dropbox, S3, SFTP, and more.${RESET}\n"
+
+    local remote_name
+    ask remote_name "Enter a custom name for this remote (e.g. gdrive, myonedrive)"
+    # Sanitise
+    remote_name="${remote_name//[^a-zA-Z0-9_-]/}"
+    if [[ -z "$remote_name" ]]; then
+        log_error "Remote name cannot be empty."
+        return 1
+    fi
+
+    log_info "Launching rclone config for remote: ${BOLD}${remote_name}${RESET}"
+    echo -e "  ${YELLOW}When prompted for the name of the new remote, enter: ${BOLD}${remote_name}${RESET}"
+    echo ""
+    pause
+
+    rclone config
+
+    # Verify the remote was created
+    if rclone listremotes 2>/dev/null | grep -q "^${remote_name}:"; then
+        log_ok "Remote '${remote_name}' configured successfully!"
+    else
+        log_warn "Remote '${remote_name}' was not found after config. You can re-run this step."
+    fi
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  MOUNT DRIVE — MAIN FLOW
+# ─────────────────────────────────────────────────────────────────────────────
+mount_drive() {
+    section "Mount a Cloud Drive"
+
+    # ── 1. Pick remote ──────────────────────────────────────────────────────
+    local remotes
+    mapfile -t remotes < <(rclone listremotes 2>/dev/null | sed 's/:$//' || true)
+
+    if [[ ${#remotes[@]} -eq 0 ]]; then
+        log_warn "No rclone remotes found. Please configure one first."
+        if ask_yn "Configure a new remote now?" "y"; then
+            configure_remote
+            mapfile -t remotes < <(rclone listremotes 2>/dev/null | sed 's/:$//' || true)
+        else
+            return
+        fi
+    fi
+
+    local chosen_remote
+    pick_from_list chosen_remote "Select a remote to mount:" "${remotes[@]}"
+    log_info "Selected remote: ${BOLD}${chosen_remote}${RESET}"
+
+    # ── 2. Remote sub-path (optional) ──────────────────────────────────────
+    local remote_path
+    ask remote_path "Remote sub-path to mount (leave blank for root)" ""
+    local full_remote="${chosen_remote}:${remote_path}"
+
+    # ── 3. Mount point ──────────────────────────────────────────────────────
+    local default_mp="${DEFAULT_MOUNT_BASE}/${chosen_remote}"
+    local mountpoint
+    ask mountpoint "Local mount directory" "$default_mp"
+
+    if [[ -z "$mountpoint" ]]; then
+        log_error "Mountpoint cannot be empty."
+        return 1
+    fi
+
+    # Expand ~
+    mountpoint="${mountpoint/#\~/$HOME}"
+
+    # Check if already mounted
+    if mount | grep -q " ${mountpoint} "; then
+        log_warn "Something is already mounted at ${mountpoint}."
+        if ! ask_yn "Unmount and remount?" "n"; then
+            return
+        fi
+        fusermount3 -u "$mountpoint" 2>/dev/null || fusermount -u "$mountpoint" 2>/dev/null || true
+    fi
+
+    mkdir -p "$mountpoint"
+    log_info "Mountpoint: ${BOLD}${mountpoint}${RESET}"
+
+    # ── 4. VFS Cache mode ───────────────────────────────────────────────────
+    section "Mount Options"
+    echo -e "  ${BOLD}VFS Cache Mode${RESET} — controls local caching behaviour:\n"
+    echo -e "    ${BCYAN}1)${RESET}  ${BOLD}off${RESET}      — No caching (lowest disk use, may break some apps)"
+    echo -e "    ${BCYAN}2)${RESET}  ${BOLD}minimal${RESET}  — Cache only read-open files"
+    echo -e "    ${BCYAN}3)${RESET}  ${BOLD}writes${RESET}   — Cache files opened for writing (recommended for most)"
+    echo -e "    ${BCYAN}4)${RESET}  ${BOLD}full${RESET}     — Full read/write cache (best compatibility, offline access)\n"
+
+    local vfs_choice vfs_cache
+    ask vfs_choice "Choose VFS cache mode" "4"
+    case "$vfs_choice" in
+        1) vfs_cache="off" ;;
+        2) vfs_cache="minimal" ;;
+        3) vfs_cache="writes" ;;
+        *) vfs_cache="full" ;;
+    esac
+
+    # ── 5. Read-only ────────────────────────────────────────────────────────
+    local read_only="false"
+    if ask_yn "Mount as read-only?" "n"; then read_only="true"; fi
+
+    # ── 6. Allow other users — SAFE: check /etc/fuse.conf first ─────────────
+    local allow_other_flag=false
+    if grep -qE '^\s*user_allow_other' /etc/fuse.conf 2>/dev/null; then
+        # fuse.conf already has user_allow_other — safe to offer the option
+        if ask_yn "Allow other system users to access this mount?" "n"; then
+            allow_other_flag=true
+        fi
+    else
+        echo -e "\n  ${BYELLOW}[NOTE]${RESET}  ${BOLD}--allow-other${RESET} is disabled."
+        echo -e "  ${DIM}/etc/fuse.conf does not contain 'user_allow_other'.${RESET}"
+        echo -e "  ${DIM}Without it, rclone mount will fail with this flag.${RESET}"
+        if ask_yn "Auto-enable user_allow_other in /etc/fuse.conf now? (needs sudo)" "n"; then
+            if sudo sh -c 'echo "user_allow_other" >> /etc/fuse.conf'; then
+                log_ok "user_allow_other enabled in /etc/fuse.conf"
+                if ask_yn "Allow other system users to access this mount?" "n"; then
+                    allow_other_flag=true
+                fi
+            else
+                log_warn "Could not edit /etc/fuse.conf — skipping --allow-other"
+            fi
+        else
+            log_info "Skipping --allow-other (not enabled in /etc/fuse.conf)"
+        fi
+    fi
+
+    # ── 7. Extra rclone flags ───────────────────────────────────────────────
+    local extra_flags
+    ask extra_flags "Any extra rclone mount flags (blank for none)" ""
+
+    # ── 8. Mount name / profile name ───────────────────────────────────────
+    local default_name="${chosen_remote}"
+    # Warn if a profile with the same mountpoint already exists
+    if [[ -f "$CONFIG_FILE" ]] && grep -v '^#' "$CONFIG_FILE" | awk -F'|' '{print $3}' | grep -qxF "$mountpoint"; then
+        log_warn "A saved profile already uses mountpoint '${mountpoint}'."
+        echo -e "  ${DIM}Consider using a different name or mountpoint to avoid confusion.${RESET}"
+    fi
+    local profile_name
+    ask profile_name "Save profile as name" "$default_name"
+    profile_name="${profile_name//[^a-zA-Z0-9_-]/}"
+    if [[ -z "$profile_name" ]]; then
+        profile_name="${chosen_remote}-$(date +%s | tail -c 5)"
+    fi
+
+    # ── 9. Automount at boot ────────────────────────────────────────────────
+    local automount="no"
+    if ask_yn "Enable auto-mount at every boot via systemd?" "y"; then
+        automount="yes"
+    fi
+
+    # ── 10. BUILD rclone command safely (array, no eval) ────────────────────
+    local -a mount_cmd=(
+        rclone mount
+        "${full_remote}"
+        "${mountpoint}"
+        --vfs-cache-mode "${vfs_cache}"
+        --daemon
+        --log-file "${LOG_FILE}"
+    )
+    # Offline resilience: keep cached data accessible when network drops
+    # These flags prevent the FUSE mount from hanging in the file manager
+    if [[ "$vfs_cache" == "full" || "$vfs_cache" == "writes" ]]; then
+        mount_cmd+=(
+            --poll-interval 0
+            --dir-cache-time 9999h
+            --vfs-cache-max-age 9999h
+            --vfs-write-back 9999h
+            --attr-timeout 1s
+            --vfs-read-ahead 128M
+        )
+    fi
+    [[ "$read_only"       == "true" ]] && mount_cmd+=(--read-only)
+    [[ "$allow_other_flag" == true  ]] && mount_cmd+=(--allow-other)
+    # Split extra_flags safely into array words
+    if [[ -n "$extra_flags" ]]; then
+        read -ra _extra_arr <<< "$extra_flags"
+        mount_cmd+=("${_extra_arr[@]}")
+    fi
+
+    echo -e "\n  ${DIM}Command to execute:${RESET}"
+    echo -e "  ${ITALIC}${DIM}${mount_cmd[*]}${RESET}\n"
+
+    if ask_yn "Proceed with mounting?" "y"; then
+        spinner_start "Mounting ${full_remote}..."
+        "${mount_cmd[@]}" >> "$LOG_FILE" 2>&1
+        spinner_stop
+
+        sleep 1
+        # Verify using the precise fuse.rclone type check
+        if mount 2>/dev/null | grep 'type fuse\.rclone' | awk '{print $3}' | grep -qxF "${mountpoint}"; then
+            log_ok "Successfully mounted ${BOLD}${full_remote}${RESET} → ${BOLD}${mountpoint}${RESET}"
+        else
+            log_error "Mount failed. Check log: ${LOG_FILE}"
+            tail -5 "$LOG_FILE" | while IFS= read -r l; do echo -e "  ${DIM}${l}${RESET}"; done
+            return 1
+        fi
+    else
+        log_info "Mount cancelled."
+        return
+    fi
+
+    # ── 11. Save profile ─────────────────────────────────────────────────────
+    local saved_allow=""
+    [[ "$allow_other_flag" == true ]] && saved_allow="--allow-other"
+    # Remove old entry with same name if any
+    if [[ -f "$CONFIG_FILE" ]]; then
+        grep -v "^${profile_name}|" "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
+    fi
+    echo "${profile_name}|${full_remote}|${mountpoint}|${vfs_cache}|${read_only}|${saved_allow} ${extra_flags}|${automount}" >> "$CONFIG_FILE"
+    log_info "Profile '${profile_name}' saved to ${CONFIG_FILE}"
+
+    # ── 12. Install systemd unit ─────────────────────────────────────────────
+    if [[ "$automount" == "yes" ]]; then
+        install_systemd_unit "$profile_name" "$full_remote" "$mountpoint" \
+            "$vfs_cache" "$read_only" "$saved_allow" "$extra_flags"
+    fi
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  INSTALL SYSTEMD UNIT FOR AUTO-MOUNT
+# ─────────────────────────────────────────────────────────────────────────────
+install_systemd_unit() {
+    local name="$1" remote="$2" mp="$3" vfs="$4" ro="$5" allow_other="$6" extra="$7"
+    local unit_file="${SYSTEMD_USER_DIR}/rclone-${name}.service"
+
+    local ro_flag=""
+    [[ "$ro" == "true" ]] && ro_flag="--read-only"
+
+    local rclone_path
+    rclone_path=$(command -v rclone)
+
+    # Build ExecStart command line
+    local exec_start="${rclone_path} mount ${remote} ${mp}"
+    exec_start+=" --config=%h/.config/rclone/rclone.conf"
+    exec_start+=" --vfs-cache-mode ${vfs}"
+    # Offline resilience flags (full/writes cache modes)
+    if [[ "$vfs" == "full" || "$vfs" == "writes" ]]; then
+        exec_start+=" --poll-interval 0"
+        exec_start+=" --dir-cache-time 9999h"
+        exec_start+=" --vfs-cache-max-age 9999h"
+        exec_start+=" --vfs-write-back 9999h"
+        exec_start+=" --attr-timeout 1s"
+        exec_start+=" --vfs-read-ahead 128M"
+    fi
+    [[ -n "$ro_flag" ]]     && exec_start+=" ${ro_flag}"
+    [[ -n "$allow_other" ]] && exec_start+=" ${allow_other}"
+    [[ -n "$extra" ]]       && exec_start+=" ${extra}"
+    exec_start+=" --log-file=${LOG_FILE}"
+    exec_start+=" --log-level INFO"
+
+    cat > "$unit_file" << UNIT
+[Unit]
+Description=Rclone Mount — ${name} (${remote})
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStartPre=/bin/mkdir -p ${mp}
+ExecStart=${exec_start}
+ExecStop=/bin/fusermount3 -u ${mp}
+Restart=on-failure
+RestartSec=10s
+
+[Install]
+WantedBy=default.target
+UNIT
+
+    chmod 644 "$unit_file"
+    systemctl --user daemon-reload
+    systemctl --user enable "rclone-${name}.service" 2>/dev/null
+    systemctl --user start  "rclone-${name}.service" 2>/dev/null || true
+
+    log_ok "Systemd unit installed: ${unit_file}"
+    log_ok "Service enabled for auto-mount at boot."
+
+    # Ensure lingering is enabled (so user services run without login)
+    if command -v loginctl &>/dev/null; then
+        loginctl enable-linger "$(whoami)" 2>/dev/null || true
+    fi
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  UNMOUNT DRIVE
+# ─────────────────────────────────────────────────────────────────────────────
+unmount_drive() {
+    section "Unmount a Drive"
+
+    # Build list — only genuine rclone FUSE mounts (type fuse.rclone)
+    local mounted_mps=()
+    while IFS= read -r line; do
+        local mp
+        mp=$(echo "$line" | awk '{print $3}')
+        mounted_mps+=("$mp")
+    done < <(mount 2>/dev/null | grep 'type fuse\.rclone' || true)
+
+    if [[ ${#mounted_mps[@]} -eq 0 ]]; then
+        log_warn "No rclone drives are currently mounted."
+        pause
+        return
+    fi
+
+    local target_mp
+    pick_from_list target_mp "Select drive to unmount:" "${mounted_mps[@]}"
+
+    if ask_yn "Unmount ${BOLD}${target_mp}${RESET}?" "y"; then
+        spinner_start "Unmounting ${target_mp}..."
+        if fusermount3 -u "$target_mp" 2>/dev/null || fusermount -u "$target_mp" 2>/dev/null; then
+            spinner_stop
+            log_ok "Successfully unmounted ${target_mp}"
+        else
+            spinner_stop
+            log_warn "Normal unmount failed, trying lazy unmount..."
+            fusermount3 -uz "$target_mp" 2>/dev/null \
+                || fusermount -uz "$target_mp" 2>/dev/null \
+                || umount -l "$target_mp" 2>/dev/null \
+                || { log_error "Could not unmount ${target_mp}. Try: sudo umount -l ${target_mp}"; return 1; }
+            log_ok "Lazy unmount of ${target_mp} succeeded."
+        fi
+    fi
+
+    # Offer to disable systemd unit
+    local unit_name=""
+    if [[ -f "$CONFIG_FILE" ]]; then
+        while IFS='|' read -r name _ mp _; do
+            [[ "$mp" == "$target_mp" ]] && unit_name="$name" && break
+        done < "$CONFIG_FILE"
+    fi
+
+    if [[ -n "$unit_name" ]]; then
+        if ask_yn "Disable auto-mount unit for '${unit_name}'?" "n"; then
+            systemctl --user disable --now "rclone-${unit_name}.service" 2>/dev/null || true
+            log_ok "Auto-mount unit disabled."
+        fi
+    fi
+
+    pause
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  MANAGE SAVED PROFILES
+# ─────────────────────────────────────────────────────────────────────────────
+manage_profiles() {
+    section "Manage Saved Profiles"
+
+    local profiles=()
+    if [[ -f "$CONFIG_FILE" ]]; then
+        while IFS='|' read -r name remote mp vfs ro extra auto; do
+            [[ "$name" =~ ^#.*$ || -z "$name" ]] && continue
+            profiles+=("${name}  →  ${remote}  (${mp})")
+        done < "$CONFIG_FILE"
+    fi
+
+    if [[ ${#profiles[@]} -eq 0 ]]; then
+        log_warn "No saved profiles found."
+        pause
+        return
+    fi
+
+    echo -e "  ${BOLD}Saved Profiles:${RESET}\n"
+    local i=1
+    for p in "${profiles[@]}"; do
+        echo -e "    ${BCYAN}${i})${RESET}  ${p}"
+        (( i++ )) || true
+    done
+
+    echo -e "\n    ${BCYAN}d)${RESET}  Delete a profile"
+    echo -e "    ${BCYAN}m)${RESET}  Mount a saved profile"
+    echo -e "    ${BCYAN}b)${RESET}  Back"
+    echo ""
+    local choice; ask choice "Choice"
+
+    case "${choice,,}" in
+        d)
+            local idx; ask idx "Profile number to delete"
+            if [[ "$idx" =~ ^[0-9]+$ ]] && (( idx >= 1 && idx <= ${#profiles[@]} )); then
+                # Get name of that profile
+                local pname; pname=$(echo "${profiles[$((idx-1))]}" | awk '{print $1}')
+                if ask_yn "Delete profile '${pname}'?" "n"; then
+                    grep -v "^${pname}|" "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
+                    # Remove systemd unit if exists
+                    local unit="${SYSTEMD_USER_DIR}/rclone-${pname}.service"
+                    if [[ -f "$unit" ]]; then
+                        systemctl --user disable --now "rclone-${pname}.service" 2>/dev/null || true
+                        rm -f "$unit"
+                        systemctl --user daemon-reload
+                    fi
+                    log_ok "Profile '${pname}' deleted."
+                fi
+            fi
+            ;;
+        m)
+            local idx; ask idx "Profile number to mount"
+            if [[ "$idx" =~ ^[0-9]+$ ]] && (( idx >= 1 && idx <= ${#profiles[@]} )); then
+                local pname; pname=$(echo "${profiles[$((idx-1))]}" | awk '{print $1}')
+                mount_saved_profile "$pname"
+            fi
+            ;;
+        b|*) return ;;
+    esac
+
+    pause
+}
+
+mount_saved_profile() {
+    local target_name="$1"
+    while IFS='|' read -r name remote mp vfs ro extra auto; do
+        [[ "$name" != "$target_name" ]] && continue
+        # Build command array safely — no eval
+        local -a mount_cmd=(
+            rclone mount
+            "${remote}"
+            "${mp}"
+            --vfs-cache-mode "${vfs}"
+            --daemon
+            --log-file "${LOG_FILE}"
+        )
+        # Offline resilience: keep cached data accessible when network drops
+        if [[ "$vfs" == "full" || "$vfs" == "writes" ]]; then
+            mount_cmd+=(
+                --poll-interval 0
+                --dir-cache-time 9999h
+                --vfs-cache-max-age 9999h
+                --vfs-write-back 9999h
+                --attr-timeout 1s
+                --vfs-read-ahead 128M
+            )
+        fi
+        [[ "$ro" == "true" ]] && mount_cmd+=(--read-only)
+        # Split saved flags safely
+        if [[ -n "$extra" ]]; then
+            read -ra _extra_arr <<< "$extra"
+            mount_cmd+=("${_extra_arr[@]}")
+        fi
+        mkdir -p "$mp"
+        spinner_start "Mounting profile '${name}'..."
+        "${mount_cmd[@]}" >> "$LOG_FILE" 2>&1
+        spinner_stop
+        sleep 1
+        if mount 2>/dev/null | grep 'type fuse\.rclone' | awk '{print $3}' | grep -qxF "${mp}"; then
+            log_ok "Mounted '${name}': ${remote} → ${mp}"
+        else
+            log_error "Mount failed for '${name}'. Check ${LOG_FILE}"
+            tail -5 "$LOG_FILE" | while IFS= read -r l; do echo -e "  ${DIM}${l}${RESET}"; done
+        fi
+        return
+    done < "$CONFIG_FILE"
+    log_error "Profile '${target_name}' not found."
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  VIEW LOG
+# ─────────────────────────────────────────────────────────────────────────────
+view_log() {
+    section "Rclone Mounter Log (last 40 lines)"
+    if [[ -f "$LOG_FILE" ]]; then
+        tail -40 "$LOG_FILE" | while IFS= read -r line; do
+            if echo "$line" | grep -qi "error"; then
+                echo -e "  ${BRED}${line}${RESET}"
+            elif echo "$line" | grep -qi "warn"; then
+                echo -e "  ${BYELLOW}${line}${RESET}"
+            elif echo "$line" | grep -qi "info\|ok"; then
+                echo -e "  ${BCYAN}${line}${RESET}"
+            else
+                echo -e "  ${DIM}${line}${RESET}"
+            fi
+        done
+    else
+        echo -e "  ${DIM}No log file found.${RESET}"
+    fi
+    echo ""
+    pause
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  SYSTEM STATUS
+# ─────────────────────────────────────────────────────────────────────────────
+show_status() {
+    section "System Status"
+
+    echo -e "  ${BOLD}Rclone version:${RESET}  $(rclone --version 2>/dev/null | head -1 || echo 'not found')"
+    echo -e "  ${BOLD}Config file:${RESET}     ${CONFIG_FILE}"
+    echo -e "  ${BOLD}Log file:${RESET}        ${LOG_FILE}"
+    echo -e "  ${BOLD}Default mount base:${RESET} ${DEFAULT_MOUNT_BASE}"
+    echo -e "  ${BOLD}Systemd units dir:${RESET}  ${SYSTEMD_USER_DIR}"
+    echo ""
+
+    # Active systemd units
+    echo -e "  ${BOLD}Active rclone systemd units:${RESET}"
+    hr
+    systemctl --user list-units "rclone-*.service" --no-pager 2>/dev/null || echo -e "  ${DIM}None${RESET}"
+    echo ""
+
+    # Disk usage of mountpoints
+    echo -e "  ${BOLD}Mount disk usage:${RESET}"
+    hr
+    while IFS='|' read -r name _ mp _; do
+        [[ "$name" =~ ^#.*$ || -z "$name" ]] && continue
+        if mount | grep -q "${mp}"; then
+            df -h "$mp" 2>/dev/null | tail -1 | awk -v n="$name" '{printf "  %-20s  Total: %-8s  Used: %-8s  Free: %s\n", n, $2, $3, $4}'
+        fi
+    done < "$CONFIG_FILE" 2>/dev/null || true
+
+    pause
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  UNINSTALL
+# ─────────────────────────────────────────────────────────────────────────────
+uninstall() {
+    section "⚠  Uninstall / Clean Up"
+
+    log_warn "This will:"
+    echo -e "   ${RED}•${RESET} Stop and disable all rclone systemd units"
+    echo -e "   ${RED}•${RESET} Unmount all rclone drives"
+    echo -e "   ${RED}•${RESET} Remove all saved profiles"
+    echo -e "   ${RED}•${RESET} Remove systemd unit files"
+    echo ""
+
+    if ! ask_yn "Are you absolutely sure?" "n"; then
+        log_info "Uninstall cancelled."
+        return
+    fi
+
+    # Stop units
+    for unit in "${SYSTEMD_USER_DIR}"/rclone-*.service; do
+        [[ -f "$unit" ]] || continue
+        local uname; uname=$(basename "$unit")
+        systemctl --user disable --now "$uname" 2>/dev/null || true
+        rm -f "$unit"
+    done
+    systemctl --user daemon-reload 2>/dev/null || true
+
+    # Unmount all — only genuine rclone mounts
+    mount 2>/dev/null | grep 'type fuse\.rclone' | awk '{print $3}' | while read -r mp; do
+        fusermount3 -uz "$mp" 2>/dev/null || fusermount -uz "$mp" 2>/dev/null || true
+    done
+
+    # Remove config
+    rm -f "$CONFIG_FILE" "$LOG_FILE"
+
+    log_ok "Cleanup complete. Rclone itself was NOT removed (use: sudo dnf remove rclone)."
+    pause
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  HELP / ABOUT
+# ─────────────────────────────────────────────────────────────────────────────
+show_help() {
+    section "Help & About"
+    cat << 'HELP'
+  COMMANDS (non-interactive / scriptable):
+  ─────────────────────────────────────────────────────────────────────
+  rclone-mount.sh --list            List mounted drives
+  rclone-mount.sh --mount-all       Mount all saved profiles
+  rclone-mount.sh --unmount-all     Unmount all rclone drives
+  rclone-mount.sh --status          Show system status
+  rclone-mount.sh --check           Check dependencies only
+
+  VFS CACHE MODES:
+  ─────────────────────────────────────────────────────────────────────
+  off       No caching (fastest, least compatible)
+  minimal   Only cache files opened for read
+  writes    Cache files open for writing (good default)
+  full      Full read/write cache (best compatibility, uses most disk)
+
+  SUPPORTED CLOUDS (via rclone):
+  ─────────────────────────────────────────────────────────────────────
+  Google Drive, OneDrive, Dropbox, Amazon S3, Backblaze B2,
+  SFTP, WebDAV, Box, pCloud, Mega, and 70+ others.
+
+  LINKS:
+  ─────────────────────────────────────────────────────────────────────
+  GitHub  : https://github.com/ShoumikBalaSomu/Fedora-Rclone-Local-Mount
+  Rclone  : https://rclone.org/docs/
+  Systemd : https://wiki.archlinux.org/title/Rclone
+HELP
+    echo ""
+    pause
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  NON-INTERACTIVE CLI MODE
+# ─────────────────────────────────────────────────────────────────────────────
+cli_mode() {
+    case "${1:-}" in
+        --list)
+            init_config
+            list_mounts
+            ;;
+        --mount-all)
+            init_config
+            if [[ ! -f "$CONFIG_FILE" ]]; then
+                echo "No config file found."; exit 1
+            fi
+            while IFS='|' read -r name _ _ _ _ _ _; do
+                [[ "$name" =~ ^#.*$ || -z "$name" ]] && continue
+                mount_saved_profile "$name"
+            done < "$CONFIG_FILE"
+            ;;
+        --unmount-all)
+            init_config
+            mount | grep -E 'fuse\.rclone|rclone' | awk '{print $3}' | while read -r mp; do
+                fusermount3 -uz "$mp" 2>/dev/null || fusermount -uz "$mp" 2>/dev/null && echo "Unmounted: $mp"
+            done
+            ;;
+        --status)
+            init_config
+            show_status
+            ;;
+        --check)
+            init_config
+            check_dependencies
+            ;;
+        --help|-h)
+            show_help
+            ;;
+        "")
+            return 1  # No CLI args; fall through to interactive
+            ;;
+        *)
+            echo "Unknown option: ${1}. Use --help for usage."
+            exit 1
+            ;;
+    esac
+    exit 0
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  MAIN MENU
+# ─────────────────────────────────────────────────────────────────────────────
+main_menu() {
+    while true; do
+        print_banner
+        echo -e "  ${BOLD}${BWHITE}Main Menu${RESET}\n"
+        echo -e "  ${BCYAN} 1 )${RESET}  📋  List mounted drives"
+        echo -e "  ${BCYAN} 2 )${RESET}  ☁   Mount a cloud drive"
+        echo -e "  ${BCYAN} 3 )${RESET}  ⏏   Unmount a drive"
+        echo -e "  ${BCYAN} 4 )${RESET}  🗂   Manage saved profiles"
+        echo -e "  ${BCYAN} 5 )${RESET}  ⚙   Configure new rclone remote"
+        echo -e "  ${BCYAN} 6 )${RESET}  📊  System status & disk usage"
+        echo -e "  ${BCYAN} 7 )${RESET}  🔍  Check dependencies"
+        echo -e "  ${BCYAN} 8 )${RESET}  📄  View log"
+        echo -e "  ${BCYAN} 9 )${RESET}  ❓  Help & About"
+        echo -e "  ${BRED} 0 )${RESET}  🗑   Uninstall / Clean up"
+        echo -e "  ${BRED} q )${RESET}  ✖   Quit"
+        echo ""
+        hr
+        ask choice "Select option"
+        echo ""
+
+        case "${choice,,}" in
+            1) list_mounts;          pause ;;
+            2) mount_drive ;;
+            3) unmount_drive ;;
+            4) manage_profiles ;;
+            5) configure_remote ;;
+            6) show_status ;;
+            7) check_dependencies;   pause ;;
+            8) view_log ;;
+            9) show_help ;;
+            0) uninstall ;;
+            q|quit|exit) echo -e "\n  ${BGREEN}Goodbye!${RESET}\n"; exit 0 ;;
+            *) log_warn "Invalid option '${choice}'" ;;
+        esac
+    done
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  ENTRY POINT
+# ─────────────────────────────────────────────────────────────────────────────
+main() {
+    # Route CLI args first
+    if [[ $# -gt 0 ]]; then
+        init_config
+        cli_mode "$@"
+    fi
+
+    # Interactive TUI
+    init_config
+    check_dependencies
+    pause
+    main_menu
+}
+
+main "$@"
