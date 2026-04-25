@@ -1,7 +1,7 @@
 # ☁️ Fedora Rclone Local Mount Manager
 
 <div align="center">
-  <img src="https://img.shields.io/badge/Version-3.0.0-blueviolet?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Version-3.1.0-blueviolet?style=for-the-badge" />
   <img src="https://img.shields.io/badge/Fedora-Ready-blue?style=for-the-badge&logo=fedora" />
   <img src="https://img.shields.io/badge/Rclone-Sync%20Optimised-orange?style=for-the-badge&logo=rclone" />
   <img src="https://img.shields.io/badge/Status-Production-brightgreen?style=for-the-badge" />
@@ -29,6 +29,8 @@ Unlike a basic `rclone mount`, this project provides **sync-optimised VFS settin
 | 🛠️ **Dependency Checker** | Auto-detects and installs rclone, fuse3, systemd via dnf |
 | 🖥️ **CLI & Scriptable** | Non-interactive flags: `--list`, `--mount-all`, `--unmount-all`, `--status` |
 | 📊 **Live Status Dashboard** | See all mounts, VFS cache modes, disk usage, systemd unit health |
+| ✏️ **RW/RO Mode Display** | Mount listing clearly shows read-write vs read-only status per drive |
+| ✅ **Write Verification** | Post-mount write-access test confirms files are actually editable |
 
 ## 🚀 Quick Install
 
@@ -47,7 +49,7 @@ chmod +x rclone-mount.sh
 
 ## 🔧 How It Works
 
-### VFS Cache Settings (v3.0.0 — Sync-Optimised)
+### VFS Cache Settings (v3.1.0 — Sync-Optimised)
 
 The critical settings that control **local ↔ cloud synchronisation**:
 
@@ -123,6 +125,16 @@ Any storage backend supported by [rclone](https://rclone.org/overview/) works ou
 > Google Drive • OneDrive • Dropbox • Amazon S3 • Backblaze B2 • SFTP • WebDAV • Box • pCloud • Mega • Wasabi • DigitalOcean Spaces • and 70+ more
 
 ## 🔄 Changelog
+
+### v3.1.0 — Read-Write Fix & Mode Display (2026-04-25)
+- **FIXED**: Cloud drive files can now be edited (removed accidental `--read-only` flag)
+- **ADDED**: Mount listing now shows **RW** (read-write) or **RO** (read-only) mode per drive
+- **ADDED**: Explicit **Mount Access Mode** prompt with clear descriptions:
+  - READ-WRITE (default) — create, edit, delete files
+  - READ-ONLY — view-only, with ⚠ WARNING banner when selected
+- **ADDED**: Post-mount **write-access verification** test for read-write mounts
+- **IMPROVED**: Systemd service unit no longer includes `--read-only` unless explicitly requested
+- Bumped version to 3.1.0
 
 ### v3.0.0 — Sync-Optimised (2026-04-25)
 - **FIXED**: Local files now sync to cloud properly
