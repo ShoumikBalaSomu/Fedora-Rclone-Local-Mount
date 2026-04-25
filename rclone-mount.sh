@@ -7,11 +7,11 @@
 #  ██║  ██║╚██████╗███████╗╚██████╔╝██║ ╚████║███████╗
 #  ╚═╝  ╚═╝ ╚═════╝╚══════╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝
 #
-#  Fedora Rclone Local Mount Manager
+#  Linux Rclone Local Mount Manager
 #  Author  : ShoumikBalaSomu
 #  GitHub  : https://github.com/ShoumikBalaSomu/Fedora-Rclone-Local-Mount
 #  License : MIT
-#  Version : 3.1.0
+#  Version : 4.0.0
 # =============================================================================
 
 set -euo pipefail
@@ -19,14 +19,127 @@ set -euo pipefail
 # ─────────────────────────────────────────────────────────────────────────────
 #  GLOBAL CONSTANTS
 # ─────────────────────────────────────────────────────────────────────────────
-readonly SCRIPT_VERSION="3.1.0"
-readonly SCRIPT_NAME="Fedora Rclone Local Mount Manager"
+readonly SCRIPT_VERSION="4.0.0"
+readonly SCRIPT_NAME="Linux Rclone Local Mount Manager"
 readonly CONFIG_DIR="${HOME}/.config/rclone-mounter"
 readonly CONFIG_FILE="${CONFIG_DIR}/mounts.conf"
 readonly LOG_FILE="${CONFIG_DIR}/rclone-mounter.log"
 readonly SYSTEMD_USER_DIR="${HOME}/.config/systemd/user"
 readonly DEFAULT_MOUNT_BASE="${HOME}/CloudDrives"
 readonly RCLONE_BIN=$(command -v rclone 2>/dev/null || true)
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  DISTRO & PACKAGE MANAGER DETECTION
+# ─────────────────────────────────────────────────────────────────────────────
+DISTRO_ID="unknown"
+DISTRO_NAME="Unknown Linux"
+PKG_MANAGER=""
+
+detect_distro() {
+    if [[ -f /etc/os-release ]]; then
+        # shellcheck source=/dev/null
+        source /etc/os-release
+        DISTRO_ID="${ID:-unknown}"
+        DISTRO_NAME="${PRETTY_NAME:-${NAME:-Unknown Linux}}"
+    elif [[ -f /etc/lsb-release ]]; then
+        # shellcheck source=/dev/null
+        source /etc/lsb-release
+        DISTRO_ID="${DISTRIB_ID,,}"
+        DISTRO_NAME="${DISTRIB_DESCRIPTION:-Unknown Linux}"
+    elif command -v lsb_release &>/dev/null; then
+        DISTRO_ID=$(lsb_release -si 2>/dev/null | tr '[:upper:]' '[:lower:]')
+        DISTRO_NAME=$(lsb_release -sd 2>/dev/null)
+    fi
+    log_debug "Detected distro: ${DISTRO_ID} (${DISTRO_NAME})"
+}
+
+detect_pkg_manager() {
+    if command -v apt-get &>/dev/null; then
+        PKG_MANAGER="apt"
+    elif command -v dnf &>/dev/null; then
+        PKG_MANAGER="dnf"
+    elif command -v yum &>/dev/null; then
+        PKG_MANAGER="yum"
+    elif command -v pacman &>/dev/null; then
+        PKG_MANAGER="pacman"
+    elif command -v zypper &>/dev/null; then
+        PKG_MANAGER="zypper"
+    elif command -v apk &>/dev/null; then
+        PKG_MANAGER="apk"
+    elif command -v xbps-install &>/dev/null; then
+        PKG_MANAGER="xbps"
+    elif command -v emerge &>/dev/null; then
+        PKG_MANAGER="emerge"
+    elif command -v nix-env &>/dev/null; then
+        PKG_MANAGER="nix"
+    else
+        PKG_MANAGER=""
+    fi
+    log_debug "Detected package manager: ${PKG_MANAGER:-none}"
+}
+
+install_packages() {
+    # install_packages <pkg1> <pkg2> ...
+    local pkgs=("$@")
+    log_info "Installing: ${pkgs[*]} via ${PKG_MANAGER}..."
+    case "$PKG_MANAGER" in
+        apt)
+            sudo apt-get update -qq >> "$LOG_FILE" 2>&1 || true
+            sudo apt-get install -y "${pkgs[@]}" >> "$LOG_FILE" 2>&1
+            ;;
+        dnf)
+            sudo dnf install -y "${pkgs[@]}" >> "$LOG_FILE" 2>&1
+            ;;
+        yum)
+            sudo yum install -y "${pkgs[@]}" >> "$LOG_FILE" 2>&1
+            ;;
+        pacman)
+            sudo pacman -S --noconfirm "${pkgs[@]}" >> "$LOG_FILE" 2>&1
+            ;;
+        zypper)
+            sudo zypper install -y "${pkgs[@]}" >> "$LOG_FILE" 2>&1
+            ;;
+        apk)
+            sudo apk add "${pkgs[@]}" >> "$LOG_FILE" 2>&1
+            ;;
+        xbps)
+            sudo xbps-install -y "${pkgs[@]}" >> "$LOG_FILE" 2>&1
+            ;;
+        emerge)
+            sudo emerge --ask=n "${pkgs[@]}" >> "$LOG_FILE" 2>&1
+            ;;
+        nix)
+            nix-env -iA "${pkgs[@]}" >> "$LOG_FILE" 2>&1
+            ;;
+        *)
+            log_error "No supported package manager found. Please install manually: ${pkgs[*]}"
+            return 1
+            ;;
+    esac
+}
+
+get_fuse_packages() {
+    # Returns the correct fuse package names for the current distro/pkg manager
+    case "$PKG_MANAGER" in
+        apt)     echo "fuse3 libfuse3-dev" ;;
+        dnf|yum) echo "fuse fuse3 fuse3-libs" ;;
+        pacman)  echo "fuse3" ;;
+        zypper)  echo "fuse3" ;;
+        apk)     echo "fuse3 fuse3-dev" ;;
+        xbps)    echo "fuse3" ;;
+        emerge)  echo "sys-fs/fuse:3" ;;
+        nix)     echo "nixpkgs.fuse3" ;;
+        *)       echo "fuse3" ;;
+    esac
+}
+
+get_rclone_packages() {
+    case "$PKG_MANAGER" in
+        emerge)  echo "net-misc/rclone" ;;
+        nix)     echo "nixpkgs.rclone" ;;
+        *)       echo "rclone" ;;
+    esac
+}
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  ANSI COLOUR PALETTE
@@ -99,7 +212,7 @@ print_banner() {
   ║   ██║  ██║╚██████╗███████╗╚██████╔╝██║ ╚████║███████╗           ║
   ║   ╚═╝  ╚═╝ ╚═════╝╚══════╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝          ║
   ║                                                                   ║
-  ║        Fedora Rclone Local Mount Manager  v3.1.0                 ║
+  ║        Linux Rclone Local Mount Manager  v4.0.0                  ║
   ║        github.com/ShoumikBalaSomu/Fedora-Rclone-Local-Mount     ║
   ╚═══════════════════════════════════════════════════════════════════╝
 EOF
@@ -181,7 +294,7 @@ init_config() {
     mkdir -p "$CONFIG_DIR" "$DEFAULT_MOUNT_BASE" "$SYSTEMD_USER_DIR"
     if [[ ! -f "$CONFIG_FILE" ]]; then
         cat > "$CONFIG_FILE" << 'CONF'
-# Fedora Rclone Local Mount Manager — Saved Mounts
+# Linux Rclone Local Mount Manager — Saved Mounts
 # Format: NAME|REMOTE|MOUNTPOINT|VFS_CACHE|READ_ONLY|EXTRA_FLAGS|AUTOMOUNT
 # ─────────────────────────────────────────────────
 CONF
@@ -199,25 +312,68 @@ CONF
 check_dependencies() {
     section "Dependency Check"
 
-    local missing=()
-    local deps=("rclone" "fusermount3" "systemctl" "fuse")
+    # Show detected distro info
+    echo -e "  ${BOLD}Distro:${RESET}          ${DISTRO_NAME}"
+    echo -e "  ${BOLD}Package Manager:${RESET} ${PKG_MANAGER:-none detected}"
+    hr
+    echo ""
 
-    for dep in "${deps[@]}"; do
-        if ! command -v "$dep" &>/dev/null && ! rpm -q "$dep" &>/dev/null 2>&1; then
+    local missing=()
+    # Check core commands (cross-distro)
+    local -A dep_cmds=(
+        [rclone]="rclone"
+        [fusermount3]="fusermount3"
+        [systemctl]="systemctl"
+    )
+
+    for dep in rclone fusermount3 systemctl; do
+        if command -v "$dep" &>/dev/null; then
+            echo -e "  ${BGREEN}✓${RESET}  ${dep}"
+        else
             missing+=("$dep")
             echo -e "  ${BRED}✗${RESET}  ${dep}"
-        else
-            echo -e "  ${BGREEN}✓${RESET}  ${dep}"
         fi
     done
+
+    # Also check if fuse kernel module is available
+    if [[ -e /dev/fuse ]]; then
+        echo -e "  ${BGREEN}✓${RESET}  /dev/fuse (FUSE kernel support)"
+    else
+        echo -e "  ${BYELLOW}~${RESET}  /dev/fuse (not found — may need to load fuse module)"
+    fi
 
     if [[ ${#missing[@]} -gt 0 ]]; then
         echo ""
         log_warn "Missing: ${missing[*]}"
-        if ask_yn "Auto-install missing dependencies via dnf?" "y"; then
-            spinner_start "Installing dependencies..."
-            sudo dnf install -y rclone fuse fuse3 fuse3-libs >> "$LOG_FILE" 2>&1 || true
+
+        if [[ -z "$PKG_MANAGER" ]]; then
+            log_error "No supported package manager detected. Please install manually: rclone fuse3"
+            echo -e "  ${DIM}See https://rclone.org/install/ for rclone installation instructions${RESET}"
+            exit 1
+        fi
+
+        if ask_yn "Auto-install missing dependencies via ${PKG_MANAGER}?" "y"; then
+            spinner_start "Installing dependencies via ${PKG_MANAGER}..."
+            local install_ok=true
+            # Install rclone if missing
+            if ! command -v rclone &>/dev/null; then
+                local rclone_pkgs
+                rclone_pkgs=$(get_rclone_packages)
+                read -ra _rpkgs <<< "$rclone_pkgs"
+                install_packages "${_rpkgs[@]}" || install_ok=false
+            fi
+            # Install fuse if missing
+            if ! command -v fusermount3 &>/dev/null; then
+                local fuse_pkgs
+                fuse_pkgs=$(get_fuse_packages)
+                read -ra _fpkgs <<< "$fuse_pkgs"
+                install_packages "${_fpkgs[@]}" || install_ok=false
+            fi
             spinner_stop
+            if [[ "$install_ok" == false ]]; then
+                log_error "Some packages failed to install. Check log: ${LOG_FILE}"
+                echo -e "  ${DIM}You can also install rclone via: curl https://rclone.org/install.sh | sudo bash${RESET}"
+            fi
             # Reload path
             hash -r
         else
@@ -226,8 +382,15 @@ check_dependencies() {
         fi
     fi
 
+    # systemctl is optional — warn but don't block on non-systemd systems
+    if ! command -v systemctl &>/dev/null; then
+        echo ""
+        log_warn "systemd not detected. Auto-mount at boot will not be available."
+        echo -e "  ${DIM}The script will still work for manual mounting.${RESET}"
+    fi
+
     # Ensure fuse userspace access
-    if ! grep -qx "user_allow_other" /etc/fuse.conf 2>/dev/null; then
+    if [[ -f /etc/fuse.conf ]] && ! grep -qE '^\s*user_allow_other' /etc/fuse.conf 2>/dev/null; then
         log_warn "/etc/fuse.conf: 'user_allow_other' not set — --allow-other flag may fail."
         echo -e "  ${DIM}Run: sudo sh -c 'echo user_allow_other >> /etc/fuse.conf'${RESET}"
     fi
@@ -828,11 +991,17 @@ view_log() {
 show_status() {
     section "System Status"
 
+    echo -e "  ${BOLD}Linux distro:${RESET}    ${DISTRO_NAME} (${DISTRO_ID})"
+    echo -e "  ${BOLD}Package manager:${RESET} ${PKG_MANAGER:-none}"
     echo -e "  ${BOLD}Rclone version:${RESET}  $(rclone --version 2>/dev/null | head -1 || echo 'not found')"
     echo -e "  ${BOLD}Config file:${RESET}     ${CONFIG_FILE}"
     echo -e "  ${BOLD}Log file:${RESET}        ${LOG_FILE}"
     echo -e "  ${BOLD}Default mount base:${RESET} ${DEFAULT_MOUNT_BASE}"
-    echo -e "  ${BOLD}Systemd units dir:${RESET}  ${SYSTEMD_USER_DIR}"
+    if command -v systemctl &>/dev/null; then
+        echo -e "  ${BOLD}Systemd units dir:${RESET}  ${SYSTEMD_USER_DIR}"
+    else
+        echo -e "  ${BOLD}Init system:${RESET}     ${DIM}non-systemd (auto-mount unavailable)${RESET}"
+    fi
     echo ""
 
     # Active systemd units
@@ -1020,6 +1189,10 @@ main_menu() {
 #  ENTRY POINT
 # ─────────────────────────────────────────────────────────────────────────────
 main() {
+    # Detect Linux distro and package manager early
+    detect_distro
+    detect_pkg_manager
+
     # Route CLI args first
     if [[ $# -gt 0 ]]; then
         init_config

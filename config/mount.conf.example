@@ -1,5 +1,5 @@
 # =============================================================================
-#  Fedora Rclone Local Mount — mount.conf.example
+#  Linux Rclone Local Mount — mount.conf.example
 #  Copy to: ~/.config/rclone-mounter/mounts.conf
 #
 #  Format: NAME|REMOTE|MOUNTPOINT|VFS_CACHE|READ_ONLY|EXTRA_FLAGS|AUTOMOUNT

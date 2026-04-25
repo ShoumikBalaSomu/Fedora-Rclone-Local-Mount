@@ -1,8 +1,8 @@
-# ☁️ Fedora Rclone Local Mount Manager
+# ☁️ Linux Rclone Local Mount Manager
 
 <div align="center">
-  <img src="https://img.shields.io/badge/Version-3.1.0-blueviolet?style=for-the-badge" />
-  <img src="https://img.shields.io/badge/Fedora-Ready-blue?style=for-the-badge&logo=fedora" />
+  <img src="https://img.shields.io/badge/Version-4.0.0-blueviolet?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Linux-Universal-blue?style=for-the-badge&logo=linux" />
   <img src="https://img.shields.io/badge/Rclone-Sync%20Optimised-orange?style=for-the-badge&logo=rclone" />
   <img src="https://img.shields.io/badge/Status-Production-brightgreen?style=for-the-badge" />
   <img src="https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge" />
@@ -12,9 +12,25 @@
 
 ## 📖 Overview
 
-A **professional-grade**, all-in-one interactive Bash script to **mount, manage, and auto-boot** any cloud storage provider on Fedora Linux — powered by **rclone**, **FUSE**, and **systemd**.
+A **professional-grade**, all-in-one interactive Bash script to **mount, manage, and auto-boot** any cloud storage provider on **any Linux distro** — powered by **rclone**, **FUSE**, and **systemd**.
 
 Unlike a basic `rclone mount`, this project provides **sync-optimised VFS settings** that ensure local file changes are **flushed to the cloud within seconds**, while remote changes are detected promptly. Supports Google Drive, OneDrive, Dropbox, S3, SFTP, and 70+ more.
+
+## 🐧 Supported Distros
+
+| Distro | Package Manager | Status |
+|--------|----------------|--------|
+| **Fedora** / RHEL / CentOS | `dnf` / `yum` | ✅ Fully Tested |
+| **Ubuntu** / Debian / Mint | `apt` | ✅ Supported |
+| **Arch** / Manjaro / EndeavourOS | `pacman` | ✅ Supported |
+| **openSUSE** Tumbleweed/Leap | `zypper` | ✅ Supported |
+| **Alpine** Linux | `apk` | ✅ Supported |
+| **Void** Linux | `xbps` | ✅ Supported |
+| **Gentoo** | `emerge` | ✅ Supported |
+| **NixOS** | `nix` | ⚠️ Partial |
+| Any other with `systemd` + `fuse3` | Manual install | ✅ Works |
+
+> **Auto-detection**: The script automatically detects your distro via `/etc/os-release` and uses the correct package manager and package names — no manual configuration needed.
 
 ## ✨ Features
 
@@ -26,15 +42,16 @@ Unlike a basic `rclone mount`, this project provides **sync-optimised VFS settin
 | 🛡️ **Reliability** | Automatic restarts, stale mount cleanup, and error handling |
 | 💾 **Smart Caching** | Full VFS cache with 24h expiry for offline resilience + fast access |
 | 🗂 **Named Profiles** | Save each mount configuration as a reusable profile |
-| 🛠️ **Dependency Checker** | Auto-detects and installs rclone, fuse3, systemd via dnf |
+| 🛠️ **Dependency Checker** | Auto-detects and installs rclone, fuse3 via your distro's package manager |
 | 🖥️ **CLI & Scriptable** | Non-interactive flags: `--list`, `--mount-all`, `--unmount-all`, `--status` |
 | 📊 **Live Status Dashboard** | See all mounts, VFS cache modes, disk usage, systemd unit health |
 | ✏️ **RW/RO Mode Display** | Mount listing clearly shows read-write vs read-only status per drive |
 | ✅ **Write Verification** | Post-mount write-access test confirms files are actually editable |
+| 🐧 **Universal Linux** | Works on Fedora, Ubuntu, Arch, openSUSE, Alpine, Void, Gentoo, and more |
 
 ## 🚀 Quick Install
 
-**One-line installer:**
+**One-line installer (auto-detects your distro):**
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/ShoumikBalaSomu/Fedora-Rclone-Local-Mount/main/install.sh)
 ```
@@ -49,7 +66,15 @@ chmod +x rclone-mount.sh
 
 ## 🔧 How It Works
 
-### VFS Cache Settings (v3.1.0 — Sync-Optimised)
+### Distro Auto-Detection
+
+On startup, the script:
+1. Reads `/etc/os-release` to identify your Linux distribution
+2. Detects the available package manager (`apt`, `dnf`, `pacman`, `zypper`, `apk`, etc.)
+3. Maps the correct package names for your distro (e.g. `fuse3` vs `fuse3-libs` vs `sys-fs/fuse:3`)
+4. Installs missing dependencies automatically with your permission
+
+### VFS Cache Settings (v4.0.0 — Sync-Optimised)
 
 The critical settings that control **local ↔ cloud synchronisation**:
 
@@ -92,6 +117,7 @@ Key design decisions:
 - **`Type=simple`** — avoids systemd timeout loops (rclone doesn't send `sd_notify`)
 - **`ExecStartPre=-/bin/fusermount3 -uz`** — cleans stale FUSE mounts before starting (the `-` prefix ignores errors if not mounted)
 - **`Restart=on-failure`** — automatically recovers from crashes or network drops
+- **Non-systemd fallback** — script works for manual mounting even without systemd
 
 ## 📋 CLI Usage
 
@@ -109,7 +135,7 @@ rclone-mount --help           # Show help
 ```
 Fedora-Rclone-Local-Mount/
 ├── rclone-mount.sh          # Main interactive TUI script
-├── install.sh               # One-line installer
+├── install.sh               # Universal one-line installer
 ├── config/
 │   └── mount.conf.example   # Example profile configuration
 ├── index.html               # GitHub Pages landing page
@@ -126,26 +152,31 @@ Any storage backend supported by [rclone](https://rclone.org/overview/) works ou
 
 ## 🔄 Changelog
 
+### v4.0.0 — Universal Linux Support (2026-04-25)
+- **MAJOR**: Now works on **all Linux distros**, not just Fedora
+  - Auto-detects distro via `/etc/os-release`
+  - Auto-detects package manager: `apt`, `dnf`, `yum`, `pacman`, `zypper`, `apk`, `xbps`, `emerge`, `nix`
+  - Correct package names per distro (e.g. `fuse3` vs `fuse3-libs` vs `sys-fs/fuse:3`)
+- **ADDED**: Distro & package manager info shown in Dependency Check and System Status
+- **ADDED**: FUSE kernel module detection (`/dev/fuse`)
+- **ADDED**: Non-systemd fallback — script works for manual mounting on non-systemd distros
+- **ADDED**: Universal installer supports all major package managers
+- **REMOVED**: `rpm -q` dependency checks (replaced with cross-distro `command -v`)
+- **IMPROVED**: Fallback to `curl https://rclone.org/install.sh` if rclone not in repos
+- Bumped version to 4.0.0
+
 ### v3.1.0 — Read-Write Fix & Mode Display (2026-04-25)
 - **FIXED**: Cloud drive files can now be edited (removed accidental `--read-only` flag)
 - **ADDED**: Mount listing now shows **RW** (read-write) or **RO** (read-only) mode per drive
-- **ADDED**: Explicit **Mount Access Mode** prompt with clear descriptions:
-  - READ-WRITE (default) — create, edit, delete files
-  - READ-ONLY — view-only, with ⚠ WARNING banner when selected
+- **ADDED**: Explicit **Mount Access Mode** prompt with clear descriptions
 - **ADDED**: Post-mount **write-access verification** test for read-write mounts
-- **IMPROVED**: Systemd service unit no longer includes `--read-only` unless explicitly requested
-- Bumped version to 3.1.0
 
 ### v3.0.0 — Sync-Optimised (2026-04-25)
 - **FIXED**: Local files now sync to cloud properly
-  - Changed `--vfs-write-back` from `9999h` → `5s` (was caching writes for ~416 days!)
-  - Changed `--poll-interval` from `0` → `15s` (was completely disabling remote change detection)
+  - Changed `--vfs-write-back` from `9999h` → `5s`
+  - Changed `--poll-interval` from `0` → `15s`
   - Changed `--dir-cache-time` from `9999h` → `5m`
   - Changed `--vfs-cache-max-age` from `9999h` → `24h`
-- **ADDED**: `--vfs-cache-poll-interval 1m` for cache freshness checks
-- **ADDED**: `ExecStartPre=-/bin/fusermount3 -uz` to clean stale mounts before start
-- **ADDED**: `Environment=RCLONE_LOG_LEVEL=INFO` in systemd unit
-- Bumped version to 3.0.0
 
 ### v2.0.0
 - Changed `Type=notify` → `Type=simple` (fixed systemd timeout loop)
@@ -161,6 +192,6 @@ Licensed under the [MIT License](LICENSE). Copyright © 2026 Shoumik Bala Somu.
 ---
 
 <div align="center">
-  <p><strong>Bridging the gap between Cloud and Local storage.</strong> ☁️💻</p>
+  <p><strong>Bridging the gap between Cloud and Local storage — on every Linux distro.</strong> ☁️🐧</p>
   <p><em>Made with ❤️ by <a href="https://github.com/ShoumikBalaSomu">ShoumikBalaSomu</a></em></p>
 </div>

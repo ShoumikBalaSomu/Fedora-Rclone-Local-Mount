@@ -5,15 +5,15 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description"
-    content="Fedora Rclone Local Mount Manager — A professional-grade interactive Bash script to mount, manage, and auto-boot cloud drives on Fedora Linux." />
-  <meta name="keywords" content="rclone, fedora, cloud mount, google drive, onedrive, systemd, fuse, linux" />
+    content="Linux Rclone Local Mount Manager — A professional-grade interactive Bash script to mount, manage, and auto-boot cloud drives on any Linux distro." />
+  <meta name="keywords" content="rclone, linux, fedora, ubuntu, arch, cloud mount, google drive, onedrive, systemd, fuse" />
   <meta name="author" content="ShoumikBalaSomu" />
-  <meta property="og:title" content="Fedora Rclone Local Mount Manager" />
+  <meta property="og:title" content="Linux Rclone Local Mount Manager" />
   <meta property="og:description"
-    content="Professional-grade rclone drive manager for Fedora Linux with auto-boot support." />
+    content="Professional-grade rclone drive manager for any Linux distro with auto-boot support." />
   <meta property="og:url" content="https://shoumikbalasomu.github.io/Fedora-Rclone-Local-Mount/" />
   <meta property="og:type" content="website" />
-  <title>Fedora Rclone Local Mount Manager</title>
+  <title>Linux Rclone Local Mount Manager</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -1027,7 +1027,7 @@
 
       <div class="hero-badge" role="status">
         <span class="dot" aria-label="Active"></span>
-        Fedora Linux · Rclone-Based · Systemd Auto-Boot
+        All Linux Distros · Rclone-Based · Systemd Auto-Boot
       </div>
 
       <h1 id="hero-title">
@@ -1037,7 +1037,7 @@
 
       <p class="hero-sub">
         A professional-grade, all-in-one interactive Bash script to mount, manage,
-        and auto-boot any cloud storage provider on Fedora Linux — powered by
+        and auto-boot any cloud storage provider on <strong>any Linux distro</strong> — powered by
         <strong>rclone</strong>, <strong>FUSE</strong>, and <strong>systemd</strong>.
       </p>
 
@@ -1046,8 +1046,8 @@
           src="https://img.shields.io/badge/Shell-Bash-4EAA25?style=flat-square&logo=gnu-bash&logoColor=white"
           alt="Bash" />
         <img class="badge-img"
-          src="https://img.shields.io/badge/Distro-Fedora-294172?style=flat-square&logo=fedora&logoColor=white"
-          alt="Fedora" />
+          src="https://img.shields.io/badge/Distro-All_Linux-294172?style=flat-square&logo=linux&logoColor=white"
+          alt="Linux" />
         <img class="badge-img"
           src="https://img.shields.io/badge/Rclone-Powered-3182CE?style=flat-square&logo=cloudfoundry&logoColor=white"
           alt="Rclone" />
@@ -1083,7 +1083,7 @@
         </div>
         <div class="terminal-body" aria-hidden="true">
           <div><span class="t-dim">╔══════════════════════════════════════════════════════════╗</span></div>
-          <div><span class="t-dim">║</span> <span class="t-blue t-bold"> Fedora Rclone Local Mount Manager v3.1.0
+          <div><span class="t-dim">║</span> <span class="t-blue t-bold"> Linux Rclone Local Mount Manager v4.0.0
             </span> <span class="t-dim"> ║</span></div>
           <div><span class="t-dim">╚══════════════════════════════════════════════════════════╝</span></div>
           <div>&nbsp;</div>
@@ -1112,7 +1112,7 @@
       <p class="section-tag reveal">Features</p>
       <h2 class="section-title reveal" id="features-title">Everything you need,<br />nothing you don't</h2>
       <p class="section-sub reveal">
-        A single script that handles the full lifecycle of cloud drive management on Fedora.
+        A single script that handles the full lifecycle of cloud drive management on any Linux distro.
       </p>
 
       <div class="features-grid">
@@ -1143,8 +1143,8 @@
         <div class="card reveal">
           <div class="card-icon icon-orange" aria-hidden="true">⚙</div>
           <h3>Rich Mount Options</h3>
-          <p>Set VFS cache mode (off/minimal/writes/full), read-only, allow-other, extra rclone flags, and more — all
-            interactively.</p>
+          <p>Set VFS cache mode (off/minimal/writes/full), read-write or read-only, allow-other, extra rclone flags — all
+            interactively with clear prompts.</p>
         </div>
         <div class="card reveal">
           <div class="card-icon icon-cyan" aria-hidden="true">🔄</div>
@@ -1160,9 +1160,9 @@
         </div>
         <div class="card reveal">
           <div class="card-icon icon-purple" aria-hidden="true">🔍</div>
-          <h3>Dependency Checker</h3>
-          <p>Automatically checks for rclone, fuse3, and systemd — and offers to install missing packages via
-            <code>dnf</code>.</p>
+          <h3>Universal Dependency Checker</h3>
+          <p>Automatically detects your distro and package manager — installs rclone, fuse3 via
+            <code>apt</code>, <code>dnf</code>, <code>pacman</code>, <code>zypper</code>, <code>apk</code>, or more.</p>
         </div>
         <div class="card reveal">
           <div class="card-icon icon-green" aria-hidden="true">💻</div>
@@ -1354,7 +1354,7 @@
         <div>
           <div class="footer-brand">☁ <span>Rclone</span>Mount</div>
           <p style="font-size:0.8rem;color:var(--color-text-dim);margin-top:6px;">
-            Fedora Rclone Local Mount Manager
+            Linux Rclone Local Mount Manager
           </p>
         </div>
         <nav class="footer-links" aria-label="Footer navigation">
