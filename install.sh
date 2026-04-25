@@ -2,14 +2,14 @@
 # =============================================================================
 #  Linux Rclone Local Mount — Universal Installer
 #  Supports: Fedora, Ubuntu/Debian, Arch, openSUSE, Alpine, Void, Gentoo, NixOS
-#  github.com/ShoumikBalaSomu/Fedora-Rclone-Local-Mount
+#  github.com/ShoumikBalaSomu/Linux-Rclone-Local-Mount
 # =============================================================================
 set -euo pipefail
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; RESET='\033[0m'
 
-REPO="https://raw.githubusercontent.com/ShoumikBalaSomu/Fedora-Rclone-Local-Mount/main"
+REPO="https://raw.githubusercontent.com/ShoumikBalaSomu/Linux-Rclone-Local-Mount/main"
 INSTALL_DIR="${HOME}/.local/bin"
 SCRIPT_NAME="rclone-mount"
 

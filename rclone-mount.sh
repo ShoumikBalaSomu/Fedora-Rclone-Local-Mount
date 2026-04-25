@@ -9,7 +9,7 @@
 #
 #  Linux Rclone Local Mount Manager
 #  Author  : ShoumikBalaSomu
-#  GitHub  : https://github.com/ShoumikBalaSomu/Fedora-Rclone-Local-Mount
+#  GitHub  : https://github.com/ShoumikBalaSomu/Linux-Rclone-Local-Mount
 #  License : MIT
 #  Version : 4.0.0
 # =============================================================================
@@ -213,7 +213,7 @@ print_banner() {
   ║   ╚═╝  ╚═╝ ╚═════╝╚══════╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝          ║
   ║                                                                   ║
   ║        Linux Rclone Local Mount Manager  v4.0.0                  ║
-  ║        github.com/ShoumikBalaSomu/Fedora-Rclone-Local-Mount     ║
+  ║        github.com/ShoumikBalaSomu/Linux-Rclone-Local-Mount     ║
   ╚═══════════════════════════════════════════════════════════════════╝
 EOF
     echo -e "${RESET}"
@@ -1090,7 +1090,7 @@ show_help() {
 
   LINKS:
   ─────────────────────────────────────────────────────────────────────
-  GitHub  : https://github.com/ShoumikBalaSomu/Fedora-Rclone-Local-Mount
+  GitHub  : https://github.com/ShoumikBalaSomu/Linux-Rclone-Local-Mount
   Rclone  : https://rclone.org/docs/
   Systemd : https://wiki.archlinux.org/title/Rclone
 HELP

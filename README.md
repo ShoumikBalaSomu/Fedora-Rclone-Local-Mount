@@ -53,13 +53,13 @@ Unlike a basic `rclone mount`, this project provides **sync-optimised VFS settin
 
 **One-line installer (auto-detects your distro):**
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/ShoumikBalaSomu/Fedora-Rclone-Local-Mount/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/ShoumikBalaSomu/Linux-Rclone-Local-Mount/main/install.sh)
 ```
 
 **Or clone manually:**
 ```bash
-git clone https://github.com/ShoumikBalaSomu/Fedora-Rclone-Local-Mount.git
-cd Fedora-Rclone-Local-Mount
+git clone https://github.com/ShoumikBalaSomu/Linux-Rclone-Local-Mount.git
+cd Linux-Rclone-Local-Mount
 chmod +x rclone-mount.sh
 ./rclone-mount.sh
 ```
@@ -133,7 +133,7 @@ rclone-mount --help           # Show help
 ## 📁 File Structure
 
 ```
-Fedora-Rclone-Local-Mount/
+Linux-Rclone-Local-Mount/
 ├── rclone-mount.sh          # Main interactive TUI script
 ├── install.sh               # Universal one-line installer
 ├── config/
