@@ -11,7 +11,7 @@
 #  Author  : ShoumikBalaSomu
 #  GitHub  : https://github.com/ShoumikBalaSomu/Fedora-Rclone-Local-Mount
 #  License : MIT
-#  Version : 2.0.0
+#  Version : 3.0.0
 # =============================================================================
 
 set -euo pipefail
@@ -19,7 +19,7 @@ set -euo pipefail
 # ─────────────────────────────────────────────────────────────────────────────
 #  GLOBAL CONSTANTS
 # ─────────────────────────────────────────────────────────────────────────────
-readonly SCRIPT_VERSION="2.0.0"
+readonly SCRIPT_VERSION="3.0.0"
 readonly SCRIPT_NAME="Fedora Rclone Local Mount Manager"
 readonly CONFIG_DIR="${HOME}/.config/rclone-mounter"
 readonly CONFIG_FILE="${CONFIG_DIR}/mounts.conf"
@@ -99,7 +99,7 @@ print_banner() {
   ║   ██║  ██║╚██████╗███████╗╚██████╔╝██║ ╚████║███████╗           ║
   ║   ╚═╝  ╚═╝ ╚═════╝╚══════╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝          ║
   ║                                                                   ║
-  ║        Fedora Rclone Local Mount Manager  v2.0.0                 ║
+  ║        Fedora Rclone Local Mount Manager  v3.0.0                 ║
   ║        github.com/ShoumikBalaSomu/Fedora-Rclone-Local-Mount     ║
   ╚═══════════════════════════════════════════════════════════════════╝
 EOF
@@ -467,14 +467,15 @@ mount_drive() {
         --daemon
         --log-file "${LOG_FILE}"
     )
-    # Offline resilience: keep cached data accessible when network drops
-    # These flags prevent the FUSE mount from hanging in the file manager
+    # Sync-optimised VFS flags: local writes are flushed to cloud quickly,
+    # remote changes are detected promptly, and cached data stays fresh.
     if [[ "$vfs_cache" == "full" || "$vfs_cache" == "writes" ]]; then
         mount_cmd+=(
-            --poll-interval 0
-            --dir-cache-time 9999h
-            --vfs-cache-max-age 9999h
-            --vfs-write-back 9999h
+            --poll-interval 15s
+            --dir-cache-time 5m
+            --vfs-cache-max-age 24h
+            --vfs-write-back 5s
+            --vfs-cache-poll-interval 1m
             --attr-timeout 1s
             --vfs-read-ahead 128M
         )
@@ -543,12 +544,13 @@ install_systemd_unit() {
     local exec_start="${rclone_path} mount ${remote} ${mp}"
     exec_start+=" --config=%h/.config/rclone/rclone.conf"
     exec_start+=" --vfs-cache-mode ${vfs}"
-    # Offline resilience flags (full/writes cache modes)
+    # Sync-optimised VFS flags: local writes flush quickly, remote changes detected
     if [[ "$vfs" == "full" || "$vfs" == "writes" ]]; then
-        exec_start+=" --poll-interval 0"
-        exec_start+=" --dir-cache-time 9999h"
-        exec_start+=" --vfs-cache-max-age 9999h"
-        exec_start+=" --vfs-write-back 9999h"
+        exec_start+=" --poll-interval 15s"
+        exec_start+=" --dir-cache-time 5m"
+        exec_start+=" --vfs-cache-max-age 24h"
+        exec_start+=" --vfs-write-back 5s"
+        exec_start+=" --vfs-cache-poll-interval 1m"
         exec_start+=" --attr-timeout 1s"
         exec_start+=" --vfs-read-ahead 128M"
     fi
@@ -567,10 +569,12 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStartPre=/bin/mkdir -p ${mp}
+ExecStartPre=-/bin/fusermount3 -uz ${mp}
 ExecStart=${exec_start}
 ExecStop=/bin/fusermount3 -u ${mp}
 Restart=on-failure
 RestartSec=10s
+Environment=RCLONE_LOG_LEVEL=INFO
 
 [Install]
 WantedBy=default.target
@@ -725,13 +729,14 @@ mount_saved_profile() {
             --daemon
             --log-file "${LOG_FILE}"
         )
-        # Offline resilience: keep cached data accessible when network drops
+        # Sync-optimised VFS flags: local writes flush quickly, remote changes detected
         if [[ "$vfs" == "full" || "$vfs" == "writes" ]]; then
             mount_cmd+=(
-                --poll-interval 0
-                --dir-cache-time 9999h
-                --vfs-cache-max-age 9999h
-                --vfs-write-back 9999h
+                --poll-interval 15s
+                --dir-cache-time 5m
+                --vfs-cache-max-age 24h
+                --vfs-write-back 5s
+                --vfs-cache-poll-interval 1m
                 --attr-timeout 1s
                 --vfs-read-ahead 128M
             )
