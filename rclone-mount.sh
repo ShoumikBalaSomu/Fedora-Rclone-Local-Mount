@@ -11,7 +11,7 @@
 #  Author  : ShoumikBalaSomu
 #  GitHub  : https://github.com/ShoumikBalaSomu/Fedora-Rclone-Local-Mount
 #  License : MIT
-#  Version : 3.0.0
+#  Version : 3.1.0
 # =============================================================================
 
 set -euo pipefail
@@ -19,7 +19,7 @@ set -euo pipefail
 # ─────────────────────────────────────────────────────────────────────────────
 #  GLOBAL CONSTANTS
 # ─────────────────────────────────────────────────────────────────────────────
-readonly SCRIPT_VERSION="3.0.0"
+readonly SCRIPT_VERSION="3.1.0"
 readonly SCRIPT_NAME="Fedora Rclone Local Mount Manager"
 readonly CONFIG_DIR="${HOME}/.config/rclone-mounter"
 readonly CONFIG_FILE="${CONFIG_DIR}/mounts.conf"
@@ -99,7 +99,7 @@ print_banner() {
   ║   ██║  ██║╚██████╗███████╗╚██████╔╝██║ ╚████║███████╗           ║
   ║   ╚═╝  ╚═╝ ╚═════╝╚══════╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝          ║
   ║                                                                   ║
-  ║        Fedora Rclone Local Mount Manager  v3.0.0                 ║
+  ║        Fedora Rclone Local Mount Manager  v3.1.0                 ║
   ║        github.com/ShoumikBalaSomu/Fedora-Rclone-Local-Mount     ║
   ╚═══════════════════════════════════════════════════════════════════╝
 EOF
@@ -250,7 +250,7 @@ list_mounts() {
         echo -e "  ${YELLOW}No rclone drives are currently mounted.${RESET}\n"
     else
         # Table header
-        printf "\n  ${BOLD}%-22s %-38s %-12s %-10s${RESET}\n" "REMOTE" "MOUNTPOINT" "VFS CACHE" "STATUS"
+        printf "\n  ${BOLD}%-22s %-38s %-12s %-8s %-10s${RESET}\n" "REMOTE" "MOUNTPOINT" "VFS CACHE" "MODE" "STATUS"
         hr
 
         while IFS= read -r line; do
@@ -263,13 +263,20 @@ list_mounts() {
             local vfs_disp
             vfs_disp=$(echo "$opts" | grep -oP 'vfs_cache_mode=[^,)]+' || echo "")
             [[ -z "$vfs_disp" ]] && vfs_disp="-"
+            # Detect rw vs ro from mount options
+            local mode_str
+            if echo "$opts" | grep -q '\bro\b'; then
+                mode_str="${BRED}RO${RESET}"
+            else
+                mode_str="${BGREEN}RW${RESET}"
+            fi
             if ls "$mp" &>/dev/null 2>&1; then
                 local status_str="${BGREEN}● Active${RESET}"
             else
                 local status_str="${BRED}✗ Error${RESET}"
             fi
-            printf "  ${BCYAN}%-22s${RESET} ${WHITE}%-38s${RESET} ${DIM}%-12s${RESET} %b\n" \
-                "$remote" "$mp" "$vfs_disp" "$status_str"
+            printf "  ${BCYAN}%-22s${RESET} ${WHITE}%-38s${RESET} ${DIM}%-12s${RESET} %b    %b\n" \
+                "$remote" "$mp" "$vfs_disp" "$mode_str" "$status_str"
         done <<< "$mounted_lines"
 
         hr
@@ -405,9 +412,19 @@ mount_drive() {
         *) vfs_cache="full" ;;
     esac
 
-    # ── 5. Read-only ────────────────────────────────────────────────────────
+    # ── 5. Read-write / Read-only ──────────────────────────────────────────
     local read_only="false"
-    if ask_yn "Mount as read-only?" "n"; then read_only="true"; fi
+    echo -e "  ${BOLD}Mount Access Mode:${RESET}\n"
+    echo -e "    ${BGREEN}READ-WRITE (default)${RESET} — You can create, edit, and delete files."
+    echo -e "    ${BYELLOW}READ-ONLY${RESET}           — Files are view-only; no edits allowed.\n"
+    if ask_yn "Mount as read-only? (say NO to allow editing files)" "n"; then
+        read_only="true"
+        echo -e "\n  ${BRED}⚠  WARNING:${RESET} ${BOLD}Read-only mode selected.${RESET}"
+        echo -e "  ${DIM}You will NOT be able to create, edit, or delete files on this mount.${RESET}"
+        echo -e "  ${DIM}To change later, re-run this script and remount as read-write.${RESET}\n"
+    else
+        echo -e "\n  ${BGREEN}✓${RESET}  ${BOLD}Read-write mode${RESET} — you can edit files on this mount.\n"
+    fi
 
     # ── 6. Allow other users — SAFE: check /etc/fuse.conf first ─────────────
     local allow_other_flag=false
@@ -500,6 +517,24 @@ mount_drive() {
         # Verify using the precise fuse.rclone type check
         if mount 2>/dev/null | grep 'type fuse\.rclone' | awk '{print $3}' | grep -qxF "${mountpoint}"; then
             log_ok "Successfully mounted ${BOLD}${full_remote}${RESET} → ${BOLD}${mountpoint}${RESET}"
+            # Show rw/ro status clearly
+            local mount_opts
+            mount_opts=$(mount 2>/dev/null | grep "${mountpoint}" | grep -o '([^)]*)' | head -1)
+            if echo "$mount_opts" | grep -q '\bro\b'; then
+                echo -e "  ${BYELLOW}📖 Mode: READ-ONLY${RESET} — files cannot be edited"
+            else
+                echo -e "  ${BGREEN}✏️  Mode: READ-WRITE${RESET} — files can be edited"
+            fi
+            # Quick write-access verification for rw mounts
+            if [[ "$read_only" == "false" ]]; then
+                local test_file="${mountpoint}/.rclone_write_test_$$"
+                if touch "$test_file" 2>/dev/null; then
+                    rm -f "$test_file" 2>/dev/null
+                    log_ok "Write-access verified ✓"
+                else
+                    log_warn "Mount is rw but write test failed — check cloud permissions."
+                fi
+            fi
         else
             log_error "Mount failed. Check log: ${LOG_FILE}"
             tail -5 "$LOG_FILE" | while IFS= read -r l; do echo -e "  ${DIM}${l}${RESET}"; done
